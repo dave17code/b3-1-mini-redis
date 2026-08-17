@@ -27,8 +27,8 @@
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        CLI / REPL Layer (cli.py)                       │
-│      - 사용자 입력 파싱 (tokenize_command) & 따옴표/이스케이프 처리     │
-│      - Redis 표준 응답 포맷팅 (OK, (nil), (integer) N, (error) ERR)   │
+│      - 사용자 입력 파싱 (tokenize_command) & 따옴표/이스케이프 처리              │
+│      - Redis 표준 응답 포맷팅 (OK, (nil), (integer) N, (error) ERR)        │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ Command Routing
 ┌───────────────────────────────────▼────────────────────────────────────┐
@@ -38,21 +38,21 @@
 │  │   Key-Value Storage   │ │    LRU Tracking   │ │   TTL Management │  │
 │  │       (HashMap)       │ │  (List + HashMap) │ │  (Heap + HashMap)│  │
 │  │                       │ │                   │ │                  │  │
-│  │  - 메인 데이터 저장   │ │  - DoublyLinked   │ │  - MinHeap       │  │
-│  │  - key -> value       │ │    List (순서)    │ │    (expire_at)   │  │
+│  │  - 메인 데이터 저장       │ │  - DoublyLinked   │ │  - MinHeap       │  │
+│  │  - key -> value       │ │    List (순서)     │ │    (expire_at)   │  │
 │  │                       │ │  - HashMap        │ │  - HashMap       │  │
 │  │                       │ │    (key -> Node)  │ │    (key -> time) │  │
 │  └───────────────────────┘ └───────────────────┘ └──────────────────┘  │
 │                                                                        │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │                     Memory Manager                               │  │
+│  │                       Memory Manager                             │  │
 │  │  - used_memory = Σ (len(utf8(k)) + len(utf8(v)))                 │  │
-│  │  - maxmemory 초과 시 LRU Tail 노드 자동 Eviction 방출           │  │
+│  │  - maxmemory 초과 시 LRU Tail 노드 자동 Eviction 방출                 │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────────────────────┘
                                     │ Data Structures
 ┌───────────────────────────────────▼────────────────────────────────────┐
-│                  Custom Data Structures Layer                          │
+│                    Custom Data Structures Layer                        │
 │                                                                        │
 │  ┌────────────────────────┐ ┌──────────────────┐ ┌──────────────────┐  │
 │  │   doubly_linked_list   │ │     hash_map     │ │     min_heap     │  │
