@@ -74,7 +74,6 @@
 | `mini_redis.py` | Mini Redis 핵심 엔진. String CRUD, LRU 캐시 교체 정책, 지연/능동 TTL 만료 및 메모리 추적 총괄. |
 | `cli.py` | 토크나이저, 명령어 유효성 검증, 에러 핸들링 및 대화형 REPL 환경 제공. |
 | `main.py` | 프로그램 진입점(Entrypoint). |
-| `test_mini_redis.py` | 자료구조 단위 테스트 및 메모리 방출, 만료 시나리오 통합 검증 테스트 스위트. |
 
 ---
 
