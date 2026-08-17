@@ -154,18 +154,24 @@ Mini Redis는 **지연 만료(Lazy)**와 **능동 만료(Active)**를 함께 사
 
 ---
 
-## ⏱️ 4. 자료구조 및 시간 복잡도
+## ⏱️ 4. 자료구조 및 시간 복잡도 (Time Complexity)
 
-| 연산 | 주요 자료구조 | 시간 복잡도 | 설명 |
-| :--- | :--- | :---: | :--- |
-| **GET / EXISTS** | `HashMap` + `DoublyLinkedList` | **$O(1)$** | 해시 조회 및 노드 Head 이동 |
-| **SET** | `HashMap` + `DoublyLinkedList` | **$O(1)$** amortized | 해시 삽입, LRU Head 삽입, 필요시 리사이징 |
-| **DEL** | `HashMap` + `DoublyLinkedList` | **$O(1)$** | 해시 버킷 삭제 및 노드 포인터 단선 |
-| **LRU Eviction** | `DoublyLinkedList` + `HashMap` | **$O(1)$** | Tail 노드 분리 및 해시 제거 |
-| **EXPIRE** | `MinHeap` + `HashMap` | **$O(\log N)$** | 최소 힙 Push 및 TTL 맵 갱신 |
-| **TTL** | `HashMap` | **$O(1)$** | TTL 맵 조회 및 타임스탬프 계산 |
-| **Active Purge** | `MinHeap` | **$O(K \log N)$** | 만료된 $K$개 항목 추출 |
-| **KEYS / DBSIZE**| `HashMap` | **$O(N)$** | 전체 버킷 순회 및 유효 키 추출 |
+- **`GET` / `EXISTS` : O(1)**
+  - `HashMap`을 통한 키 조회 및 `DoublyLinkedList` 노드의 Head 이동
+- **`SET` : O(1) amortized**
+  - 해시 버킷 삽입, LRU Head 노드 추가 (용량 초과 시 2배 리사이징 Rehash 수행)
+- **`DEL` : O(1)**
+  - 해시 버킷 체인에서 삭제 및 LRU 리스트 노드 포인터 단선
+- **`LRU Eviction` : O(1)**
+  - LRU 리스트의 Tail 노드 분리 및 해시맵 색인 즉시 제거
+- **`EXPIRE` : O(log N)**
+  - 최소 힙(`MinHeap`)에 삽입 및 TTL 맵 갱신
+- **`TTL` : O(1)**
+  - TTL 해시맵 조회 및 현재 시각과의 차이 계산
+- **`Active Purge` : O(K log N)**
+  - 최소 힙의 루트를 확인하여 만료된 $K$개 항목을 연속 추출
+- **`KEYS` / `DBSIZE` : O(N)**
+  - 전체 해시 버킷을 순회하며 만료되지 않은 유효 키 추출
 
 ---
 
@@ -224,16 +230,4 @@ mini-redis> TTL user:2
 (integer) 10
 mini-redis> exit
 BYE
-```
-
-### 2) 단위 및 통합 테스트 실행
-```bash
-python3 test_mini_redis.py
-```
-```text
-......
-----------------------------------------------------------------------
-Ran 6 tests in 0.012s
-
-OK
 ```
