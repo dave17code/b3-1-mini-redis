@@ -8,7 +8,7 @@ MiniRedis의 **3대 핵심 알고리즘**인 기본 CRUD, TTL 만료 정책, LRU
 
 > 🧠 **MiniRedis 런타임 인메모리 관리 체계**
 >
-> * 📚 *$\color{red}{\textsf{3대 자료구조 저장소:}}$* `HashMap` (검색) · `DoublyLinkedList` (LRU) · `MinHeap` (만료)
+> * 📚 **$\color{red}{\textsf{3대 자료구조 저장소:}}$** `HashMap` (검색) · `DoublyLinkedList` (LRU) · `MinHeap` (만료)
 > * 📊 **$\color{red}{\textsf{2대 메모리 관리 변수:}}$** `used_memory` (사용량) · `maxmemory` (한도)
 
 ### 1. 🗺️ `self.hash_map` (HashMap)
