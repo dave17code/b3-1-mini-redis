@@ -42,18 +42,23 @@ self.hash_map.buckets
 ```text
                       [ self.head ] (더미 헤드)
                             ▲
+                            │ next / prev
                             ▼
-      ┌─────────────► [ Node @0x01 ] (MRU: 가장 최근에 사용됨)
-      │  • prev: self.head  /  next: 0x02
-      │  • data: Entry(key="user:1", value="Dave", expire_at=None)
-      │                     ▲
-      │                     ▼
-      │               [ Node @0x02 ] (LRU: 가장 오래됨 / 축출 1순위)
-      │  • prev: 0x01       /  next: self.tail
-      │  • data: Entry(key="session", value="abc", expire_at=172345678.0)
-      │                     ▲
-      │                     ▼
-      └─────────────── [ self.tail ] (더미 테일)
+               [ Node @0x01 ] (MRU: 가장 최근에 사용됨)
+                 • prev: self.head
+                 • next: Node @0x02
+                 • data: Entry(key="user:1", value="Dave", expire_at=None)
+                            ▲
+                            │ next / prev
+                            ▼
+               [ Node @0x02 ] (LRU: 가장 오래됨 / 축출 1순위)
+                 • prev: Node @0x01
+                 • next: self.tail
+                 • data: Entry(key="session", value="abc", expire_at=172345678.0)
+                            ▲
+                            │ next / prev
+                            ▼
+                      [ self.tail ] (더미 테일)
 ```
 
 - **핵심 역할:** 최근 사용된 노드는 Head 바로 뒤(MRU)로 승격시키고, 용량 초과 시 **Tail 바로 앞(LRU) 노드를 $O(1)$로 축출(Eviction)** 🚪
