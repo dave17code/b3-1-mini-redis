@@ -1,232 +1,342 @@
-# ⚡ Mini Redis (B3-1 Mission)
+# 🗄️ MiniRedis B3-1
 
-> **Python 내장 컬렉션(`dict`, `set`, `collections`, `heapq` 등)을 전혀 사용하지 않고, 밑바닥(Scratch)부터 직접 구현한 기초 자료구조들을 결합하여 구축한 CLI 기반 In-Memory Key-Value 데이터 스토리지입니다.**
-
----
-
-## 📖 1. 프로젝트 개요 (Overview)
-
-### 🎯 미션 목표
-본 프로젝트는 Redis의 핵심 메커니즘인 **String Key-Value 데이터 입출력**, **LRU(Least Recently Used) 기반 메모리 방출(Eviction)**, 그리고 **TTL(Time-To-Live) 기반 만료 처리**를 고수준 라이브러리의 도움 없이 순수 자료구조 간의 유기적 결합으로 재현하는 것을 목표로 합니다.
-
-### 🔑 핵심 특징
-1. **No Built-in Collections**: 파이썬의 `dict`, `set`, `heapq`, `deque` 등의 내장 모듈을 배제하고 `DoublyLinkedList`, `HashMap`, `MinHeap`을 직접 구현.
-2. **O(1) LRU Cache Tracking**: 이중 연결 리스트와 해시맵 노드 인덱싱을 결합하여 데이터 접근 및 순서 갱신을 $O(1)$에 수행.
-3. **Dual Expiration Strategy (Lazy + Active TTL)**: 
-   - **Lazy Expiration**: 데이터 접근 시점에 만료 여부 확인 후 삭제.
-   - **Active Expiration**: 커스텀 최소 힙(Min-Heap)의 루트 노드를 활용하여 가장 임박한 만료 키를 선제적으로 제거.
-4. **Dynamic Resizing Hash Map**: FNV-1a 해시 알고리즘과 개별 체이닝(Separate Chaining)을 적용하고, 로드 팩터(0.75) 초과 시 2배 동적 확장(Rehash).
-5. **Redis CLI REPL 지원**: 공백 및 따옴표(`"`, `'`), 이스케이프 문자를 정밀하게 파싱하는 토크나이저와 표준 Redis 응답 포맷 지원.
+MiniRedis의 **3대 핵심 알고리즘**인 기본 CRUD, TTL 만료 정책, LRU 메모리 축출을 구현하고 이를 CLI 환경에서 검증하는 프로젝트입니다.
 
 ---
 
-## 🏗️ 2. 프로그램 전체 설계도 (Architecture)
+# 🗄️ PART 1. 5대 저장소/상태 내부 데이터 형태
 
-### 📐 컴포넌트 아키텍처 다이어그램
+MiniRedis 인스턴스는 런타임 메모리에 **3개의 자료구조 저장소**와 **2개의 메모리 상태 추적 변수**를 유지합니다.
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        CLI / REPL Layer (cli.py)                       │
-│      - 사용자 입력 파싱 (tokenize_command) & 따옴표/이스케이프 처리              │
-│      - Redis 표준 응답 포맷팅 (OK, (nil), (integer) N, (error) ERR)        │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Command Routing
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                    Mini Redis Core Engine (mini_redis.py)              │
-│                                                                        │
-│  ┌───────────────────────┐ ┌───────────────────┐ ┌──────────────────┐  │
-│  │   Key-Value Storage   │ │    LRU Tracking   │ │   TTL Management │  │
-│  │       (HashMap)       │ │  (List + HashMap) │ │  (Heap + HashMap)│  │
-│  │                       │ │                   │ │                  │  │
-│  │  - 메인 데이터 저장       │ │  - DoublyLinked   │ │  - MinHeap       │  │
-│  │  - key -> value       │ │    List (순서)     │ │    (expire_at)   │  │
-│  │                       │ │  - HashMap        │ │  - HashMap       │  │
-│  │                       │ │    (key -> Node)  │ │    (key -> time) │  │
-│  └───────────────────────┘ └───────────────────┘ └──────────────────┘  │
-│                                                                        │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │                       Memory Manager                             │  │
-│  │  - used_memory = Σ (len(utf8(k)) + len(utf8(v)))                 │  │
-│  │  - maxmemory 초과 시 LRU Tail 노드 자동 Eviction 방출                 │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────┘
-                                    │ Data Structures
-┌───────────────────────────────────▼────────────────────────────────────┐
-│                    Custom Data Structures Layer                        │
-│                                                                        │
-│  ┌────────────────────────┐ ┌──────────────────┐ ┌──────────────────┐  │
-│  │   doubly_linked_list   │ │     hash_map     │ │     min_heap     │  │
-│  │  - Dummy Head & Tail   │ │  - FNV-1a Hash   │ │  - Binary Tree   │  │
-│  │  - O(1) Node Insertion │ │  - DLL Chaining  │ │    Array Index   │  │
-│  │  - O(1) Node Removal   │ │  - Dynamic 2x    │ │  - Sift-up/down  │  │
-│  │  - O(1) Move to Front  │ │    Rehashing     │ │  - O(1) Peek     │  │
-│  └────────────────────────┘ └──────────────────┘ └──────────────────┘  │
-└────────────────────────────────────────────────────────────────────────┘
-```
+### 1. 🗺️ `self.hash_map` (HashMap)
 
-### 📁 모듈별 역할 및 파일 구조
+- **저장 실체:** 고정 크기 1차원 리스트 `self.buckets = [None] * capacity` 📦
 
-| 파일명 | 역할 및 주요 책임 |
-| :--- | :--- |
-| `doubly_linked_list.py` | 더미 헤드/테일을 가진 이중 연결 리스트. $O(1)$ 노드 삽입, 삭제 및 `move_to_front` 연산 제공. |
-| `hash_map.py` | FNV-1a 해시 함수와 이중 연결 리스트 체이닝으로 구현된 해시맵. 로드 팩터 0.75 초과 시 2배 리사이징. |
-| `min_heap.py` | 배열 기반 완전 이진 트리 최소 힙. 만료 시간 기준 `(expire_at, key)` 우선순위 큐 관리 ($O(\log N)$). |
-| `mini_redis.py` | Mini Redis 핵심 엔진. String CRUD, LRU 캐시 교체 정책, 지연/능동 TTL 만료 및 메모리 추적 총괄. |
-| `cli.py` | 토크나이저, 명령어 유효성 검증, 에러 핸들링 및 대화형 REPL 환경 제공. |
-| `main.py` | 프로그램 진입점(Entrypoint). |
+- **내부 데이터 규격:** `HashItem(key: str, value_node: Node_Address, next: HashItem | None)`
 
----
-
-## 🔄 3. 기능별 작동 흐름 (Detailed Workflows)
-
-### 1) String 데이터 처리 흐름 (`SET`, `GET`, `DEL`)
-
-```
-[SET key value]
- 1. Active 만료 검사: MinHeap 루트를 확인하여 지난 만료 키 선제 제거
- 2. Lazy 만료 검사: 해당 key가 만료 대상인지 확인 후 만료 시 삭제
- 3. 메모리 검증: (key + value) 바이트 크기 > maxmemory 인 경우 즉시 OOM 에러 반환
- 4. 데이터 저장/갱신:
-    - 신규 키: HashMap에 등록, used_memory 증가, LRU 리스트 Head에 노드 삽입 후 lru_nodes에 매핑
-    - 기존 키: 값 변경 및 메모리 차이 반영, 기존 TTL 초기화, LRU 노드를 리스트 맨 앞으로 이동
- 5. Eviction 체크: used_memory > maxmemory인 경우 LRU 정책에 따라 공간 확보
-
-[GET key]
- 1. Active 만료 검사 수행
- 2. Lazy 만료 검사: 키의 TTL이 초과되었으면 즉시 삭제하고 '(nil)' 반환
- 3. 키가 존재하면 lru_list.move_to_front(node)로 LRU 순위를 최신화(O(1))한 후 '"value"' 반환
-
-[DEL key]
- 1. HashMap(db), LRU(list & map), TTL(map)에서 키를 모두 제거
- 2. used_memory에서 해당 키/값의 UTF-8 바이트 크기 차감 후 '(integer) 1' 반환
-```
-
----
-
-### 2) 메모리 관리 및 LRU Eviction 흐름 (`CONFIG SET maxmemory`, `INFO memory`)
-
-- **메모리 계산 방식**: `used_memory = Σ (len(utf-8(key)) + len(utf-8(value)))`
-- **방출 메커니즘**:
-
-```
-           [새 데이터 삽입 또는 maxmemory 축소 설정]
-                               │
-                               ▼
-               ┌───────────────────────────────┐
-               │ used_memory > maxmemory ?     │
-               └───────────────┬───────────────┘
-                               │ YES
-                               ▼
-        ┌─────────────────────────────────────────────┐
-        │  lru_list.remove_back()                     │  <-- 가장 오래 접근되지 않은
-        │  (LRU Tail 노드 추출)                        │      키를 O(1)에 획득
-        └──────────────────────┬──────────────────────┘
-                               │
-                               ▼
-        ┌─────────────────────────────────────────────┐
-        │  1. db, lru_nodes, ttl_map 에서 제거        │
-        │  2. used_memory -= (key_len + val_len)      │
-        │  3. evicted_keys += 1                       │
-        └──────────────────────┬──────────────────────┘
-                               │
-                               ▼
-                 [조건 충족될 때까지 루프 반복]
-```
-
----
-
-### 3) TTL 만료 메커니즘 흐름 (`EXPIRE`, `TTL`)
-
-Mini Redis는 **지연 만료(Lazy)**와 **능동 만료(Active)**를 함께 사용하여 메모리 효율과 응답성을 동시에 달성합니다.
-
-1. **`EXPIRE <key> <seconds>`**:
-   - 만료 시각 계산: `expire_at = current_timestamp + seconds`
-   - `ttl_map`에 `(key -> expire_at)` 저장 및 `ttl_heap`에 `(expire_at, key)` Push ($O(\log N)$).
-   - `seconds <= 0`인 경우 즉시 키를 삭제 처리.
-2. **`TTL <key>`**:
-   - 키가 없거나 이미 만료된 경우: `(integer) -2`
-   - 키는 존재하나 만료 시간이 없는 경우: `(integer) -1`
-   - 만료 시간이 설정된 경우: 올림(`ceil`) 계산된 남은 초 `(integer) N` 반환.
-3. **만료 검사 전략**:
-   - **Lazy Expiration**: 명령어가 들어올 때마다 타겟 키의 만료 시각과 현재 시각을 비교하여 삭제.
-   - **Active Purge**: 모든 주요 작업 시작 시 최소 힙의 Root(`peek()`)를 확인하여 현재 시간보다 과거인 엔트리를 Pop하여 일괄 정리.
-
----
-
-## ⏱️ 4. 자료구조 및 시간 복잡도 (Time Complexity)
-
-- **`GET` / `EXISTS` : O(1)**
-  - `HashMap`을 통한 키 조회 및 `DoublyLinkedList` 노드의 Head 이동
-- **`SET` : O(1) amortized**
-  - 해시 버킷 삽입, LRU Head 노드 추가 (용량 초과 시 2배 리사이징 Rehash 수행)
-- **`DEL` : O(1)**
-  - 해시 버킷 체인에서 삭제 및 LRU 리스트 노드 포인터 단선
-- **`LRU Eviction` : O(1)**
-  - LRU 리스트의 Tail 노드 분리 및 해시맵 색인 즉시 제거
-- **`EXPIRE` : O(log N)**
-  - 최소 힙(`MinHeap`)에 삽입 및 TTL 맵 갱신
-- **`TTL` : O(1)**
-  - TTL 해시맵 조회 및 현재 시각과의 차이 계산
-- **`Active Purge` : O(K log N)**
-  - 최소 힙의 루트를 확인하여 만료된 $K$개 항목을 연속 추출
-- **`KEYS` / `DBSIZE` : O(N)**
-  - 전체 해시 버킷을 순회하며 만료되지 않은 유효 키 추출
-
----
-
-## 💻 5. 지원 명령어 명세 (Command Reference)
-
-### String 명령어
-```bash
-SET <key> <value>     # 키에 값을 저장 (문자열 내 공백은 따옴표로 감싸서 입력)
-GET <key>             # 키의 값을 조회 (존재하지 않거나 만료 시 (nil))
-DEL <key>             # 키 삭제 (성공: 1, 실패: 0)
-EXISTS <key>          # 키 존재 여부 확인 (존재: 1, 미존재: 0)
-DBSIZE                # 저장된 유효 키의 총 개수 반환
-KEYS                  # 저장된 모든 키 목록 출력
-```
-
-### 메모리 관리 명령어
-```bash
-CONFIG SET maxmemory <bytes>  # 최대 메모리 제한 설정 (0 = 무제한)
-INFO memory                   # used_memory, maxmemory, evicted_keys 통계 조회
-```
-
-### TTL 관리 명령어
-```bash
-EXPIRE <key> <seconds>        # 키의 유효 시간(초) 설정
-TTL <key>                     # 남은 만료 시간(초) 조회
-```
-
----
-
-## 🚀 6. 실행 및 테스트 방법
-
-### 1) CLI REPL 실행
-```bash
-python3 main.py
-```
-**실행 예시:**
 ```text
-Mini Redis CLI Interface (Type 'exit' or 'quit' to close)
-mini-redis> CONFIG SET maxmemory 30
-OK
-mini-redis> SET user:1 "Alice"
-OK
-mini-redis> SET user:2 "Bob"
-OK
-mini-redis> SET user:3 "Charlie"
-OK
-mini-redis> GET user:1
-(nil)
-mini-redis> INFO memory
-used_memory:22
-maxmemory:30
-evicted_keys:1
-mini-redis> EXPIRE user:2 10
-(integer) 1
-mini-redis> TTL user:2
-(integer) 10
-mini-redis> exit
-BYE
+self.hash_map.buckets
+┌───────┬────────────────────────────────────────────────────────────────────────┐
+│ Index │ 실제 저장된 데이터 형태 (체이닝 단방향 연결)                           │
+├───────┼────────────────────────────────────────────────────────────────────────┤
+│  [0]  │ None                                                                   │
+│  [1]  │ HashItem(key="user:1", value_node=0x01, next=None)                     │
+│  [2]  │ None                                                                   │
+│  [3]  │ HashItem(key="session", value_node=0x02, next=HashItem(key="auth", ...))│
+└───────┴────────────────────────────────────────────────────────────────────────┘
+```
+
+- **핵심 역할:** 키 문자열을 다항 롤링 해시 연산하여 **`DoublyLinkedList`에 있는 실제 노드 메모리 주소(`0x01`)를 $O(1)$로 즉시 반환** ⚡
+
+### 2. 🔗 `self.lru_list` (DoublyLinkedList)
+
+- **저장 실체:** 더미 `Head`와 `Tail` 사이에 연결된 **양방향 포인터 노드 체인** ⛓️
+
+- **내부 데이터 규격:** `Node(prev: Node, next: Node, data: Entry(key, value, expire_at))`
+
+```text
+                      [ self.head ] (더미 헤드)
+                            ▲
+                            ▼
+      ┌─────────────► [ Node @0x01 ] (MRU: 가장 최근에 사용됨)
+      │  • prev: self.head  /  next: 0x02
+      │  • data: Entry(key="user:1", value="Dave", expire_at=None)
+      │                     ▲
+      │                     ▼
+      │               [ Node @0x02 ] (LRU: 가장 오래됨 / 축출 1순위)
+      │  • prev: 0x01       /  next: self.tail
+      │  • data: Entry(key="session", value="abc", expire_at=172345678.0)
+      │                     ▲
+      │                     ▼
+      └─────────────── [ self.tail ] (더미 테일)
+```
+
+- **핵심 역할:** 최근 사용된 노드는 Head 바로 뒤(MRU)로 승격시키고, 용량 초과 시 **Tail 바로 앞(LRU) 노드를 $O(1)$로 축출(Eviction)** 🚪
+
+### 3. ⏱️ `self.min_heap` (MinHeap)
+
+- **저장 실체:** 파이썬 1차원 동적 리스트 `self.heap = []` 🌲
+
+- **내부 데이터 규격:** `(expire_at: float, key: str)` 형태의 **2-튜플**
+
+```text
+self.min_heap.heap = [ (172345678.0, "session"), (172345999.0, "temp:k") ]
+
+[배열 및 완전 이진 트리 구조]
+              Index 0: (172345678.0, "session")   <-- Root (가장 먼저 만료될 항목)
+                    ┌─────────┴─────────┐
+      Index 1: (172345999.0, "temp:k")  Index 2: ...
+```
+
+- **핵심 역할:** 만료 시각이 설정된 키들만 모아 **루트(`heap[0]`)에 가장 수명이 짧은 키를 $O(1)$로 대기**시켜 신속하게 만료 청소 ⏳
+
+### 4. 🔢 `self.used_memory` (현재 사용량 변수)
+
+- **저장 실체:** 파이썬 기본 정수형 (`int`)
+
+- **내부 데이터:** 현재 저장된 모든 키와 값의 **순수 UTF-8 바이트 누적 합산값** (예: `150` Bytes) 📈
+
+- **핵심 역할:** `SET`, `DEL`, 만료, 축출 시 실시간으로 바이트를 증감 관리
+
+### 5. 🛑 `self.maxmemory` (용량 한도 변수)
+
+- **저장 실체:** 파이썬 기본 정수형 (`int`)
+
+- **내부 데이터:** 인메모리 캐시의 **최대 허용 바이트 한도** (예: `1000` Bytes, `0`이면 무제한) 🚨
+
+- **핵심 역할:** `used_memory > maxmemory`가 되는 순간 **LRU 축출 루프를 작동시키는 기준선**
+
+---
+
+# 🚀 PART 2. B3-1 미션 필수 명령어 동작 설명
+
+### 1. 💾 `SET key value`
+
+새로운 키-값을 캐시에 저장하거나 기존 키의 값을 갱신합니다. (인자 2개 고정)
+
+- **실행 과정:**
+
+  1. **만료 청소:** 힙을 확인하여 수명이 다한 키를 먼저 제거합니다.
+  2. **기존 데이터 덮어쓰기:** 해시맵에 이미 존재하는 키라면 이전 노드를 리스트와 메모리에서 완전히 회수합니다.
+  3. **노드 생성 및 배치:** 새 `Entry`와 `Node`를 생성해 `self.lru_list`의 맨 앞(Head/MRU)에 넣고, `self.hash_map` 버킷에 등록합니다.
+  4. **LRU 축출:** 메모리 사용량이 `maxmemory`를 넘어서면 `self.lru_list.remove_tail()`로 가장 오래된 노드를 연속으로 잘라냅니다.
+
+- **반환값:** `"OK"`
+
+### 2. 🔍 `GET key`
+
+키에 매핑된 값을 조회하고 최근 사용 상태로 승격시킵니다. (인자 1개 고정)
+
+- **실행 과정:**
+
+  1. **$O(1)$ 탐색:** `self.hash_map.get(key)`로 노드의 메모리 주소를 즉시 가져옵니다.
+  2. **지연 만료 검증 (Lazy Expiration):** 노드에 설정된 만료 시각이 현재 시각보다 과거라면 즉시 삭제하고 `None`을 반환합니다.
+  3. **MRU 승격:** 정상 데이터라면 `self.lru_list.move_to_front(node)`를 호출해 연결 리스트 맨 앞으로 옮겨 수명을 연장합니다.
+
+- **반환값:** 문자열 값 (`"Dave"`) 또는 없으면 `(nil)`
+
+### 3. 🗑️ `DEL key`
+
+전달된 단일 키를 캐시에서 완전히 제거합니다. (인자 1개 고정)
+
+- **실행 과정:**
+
+  1. 전달받은 키를 `self.hash_map`에서 조회합니다.
+  2. 존재하는 노드는 `self.lru_list.remove_node(node)`로 포인터를 끊고, `self.hash_map.delete(key)`로 버킷에서 분리합니다.
+  3. 해제된 키와 값의 바이트만큼 `self.used_memory`를 차감합니다.
+
+- **반환값:** 삭제 성공 시 `1`, 키가 없으면 `0`
+
+### 4. ❓ `EXISTS key`
+
+전달된 단일 키가 캐시에 유효하게 존재하는지 확인합니다. (인자 1개 고정)
+
+- **실행 과정:**
+
+  1. 키를 조회하여 존재 여부를 확인합니다.
+  2. 존재하는 키라도 만료 시각이 지났다면 즉시 정리하고 카운트에서 제외합니다.
+
+- **반환값:** 현재 유효하게 존재하면 `1`, 없으면 `0`
+
+### 5. ⏳ `EXPIRE key seconds`
+
+이미 존재하는 키에 유효 수명(TTL)을 초 단위로 부여합니다. (인자 2개 고정)
+
+- **실행 과정:**
+
+  1. `self.hash_map.get(key)`로 노드를 찾습니다 (없으면 `0` 반환).
+  2. 노드의 `expire_at` 필드에 `현재시간 + seconds`를 기록합니다.
+  3. `self.min_heap.push(expire_at, key)`로 만료 스케줄러에 등록합니다.
+
+- **반환값:** 성공 시 `1`, 키가 없으면 `0`
+
+### 6. ⏱️ `TTL key`
+
+키의 남은 유효 시간을 초 단위로 조회합니다. (인자 1개 고정)
+
+- **실행 과정:**
+
+  1. 키가 존재하지 않거나 이미 만료된 경우: `-2` 반환
+  2. 키는 존재하지만 만료 시간이 설정되지 않은 영구 데이터인 경우: `-1` 반환
+  3. 만료 시간이 남아있는 경우: `int(expire_at - 현재시간)` 계산 후 반환
+
+- **반환값:** 남은 초 정수, `-1`, 또는 `-2`
+
+### 7. 📋 `KEYS`
+
+캐시에 등록된 모든 유효한 키 목록을 조회합니다. (인자 없이 단독 실행)
+
+- **실행 과정:**
+
+  - `self.hash_map.buckets` 전체를 순회하며 체이닝된 노드들의 키를 모읍니다. (만료된 노드는 자동 필터링 및 청소)
+
+- **반환값:** 키 문자열들의 배열
+
+### 8. 🔢 `DBSIZE`
+
+현재 캐시에 저장된 유효 데이터의 총 개수를 반환합니다. (인자 없이 단독 실행)
+
+- **실행 과정:**
+
+  - 만료되지 않은 실제 유효 키 목록의 길이를 계산하여 반환합니다.
+
+- **반환값:** 키 총 개수 정수
+
+### 9. ⚙️ `CONFIG SET maxmemory <bytes>`
+
+실행 중인 서버의 최대 메모리 한도를 동적으로 설정하고, 한도가 줄어들었을 경우 즉시 초과분을 축출합니다.
+
+- **실행 과정:**
+
+  1. 전달받은 바이트 정수 값으로 `self.maxmemory` 한도를 즉시 갱신합니다.
+  2. 새로 설정된 한도가 현재 사용량(`self.used_memory`)보다 작을 경우, 한도를 만족할 때까지 `self.lru_list.remove_tail()`을 반복 호출하여 가장 오래된 데이터를 즉시 축출하고 메모리를 회수합니다.
+  3. 축출된 노드의 개수를 누적 카운터(`self.evicted_keys`)에 반영합니다.
+
+- **반환값:** `"OK"`
+
+### 10. 📊 `INFO memory`
+
+현재 캐시 서버의 메모리 사용량, 설정 한도, 누적 축출 통계를 표준 포맷으로 확인합니다. (인자 없이 단독 실행)
+
+- **실행 과정:**
+
+  1. 만료된 키들을 선제 정리한 후 현재 메모리 상태를 확인합니다.
+  2. 현재 사용 바이트(`used_memory`), 최대 한도(`maxmemory`), 지금까지 LRU로 제거된 누적 키 개수(`evicted_keys`)를 줄바꿈 포맷으로 조합하여 반환합니다.
+
+- **반환값:** `# Memory\r\nused_memory:...\r\nmaxmemory:...\r\nevicted_keys:...` 형식의 문자열
+
+---
+
+## 🎬 MiniRedis 피어 평가 시연 로드맵
+
+```text
+[ 0단계: CLI 프로그램 실행 ] ──► [ 1단계: 초기화 & 기본 CRUD ] ──► [ 2단계: TTL & 만료 청소 ] ──► [ 3단계: LRU 축출 & 메모리 제어 ] ──► [ 4단계: 잔여 키 순차 삭제 ]
+       (python main.py)            (HashMap + DoublyLinkedList)         (MinHeap + Lazy/Active)             (CONFIG SET + Eviction)                 (DEL 단일 키 반복)
+```
+
+## 🚀 0단계. 프로그램 시작 (대화형 CLI 구동)
+
+터미널에서 프로젝트의 메인 진입 스크립트를 실행하여 대화형 CLI 프롬프트를 활성화합니다.
+
+### 💻 실행 명령어
+
+```bash
+python main.py
+```
+
+---
+
+## 🏁 1단계. 기본 CRUD와 $O(1)$ 저장소 연결 증명
+
+가장 기초적인 데이터 입출력과 키 존재 여부, 삭제 및 개수 카운팅을 시연합니다.
+
+### 💻 실행 명령어 순서
+
+```bash
+# 1. 서버 메모리 초기 상태 확인 (0 bytes)
+INFO memory
+
+# 2. 데이터 2개 등록 (MRU: user:2 -> user:1)
+SET user:1 Dave
+SET user:2 Alex
+
+# 3. 데이터 조회 및 MRU 승격 (user:1 조회 -> user:1이 Head 바로 뒤로 이동)
+GET user:1
+
+# 4. 단일 키 존재 여부 확인 (키 1개씩 단독 검사)
+EXISTS user:1
+EXISTS user:99
+
+# 5. 전체 키 목록 및 데이터 개수 확인 (인자 없이 단독 실행)
+KEYS
+DBSIZE
+
+# 6. 데이터 단건 삭제
+DEL user:2
+DBSIZE
+```
+
+---
+
+## ⏳ 2단계. MinHeap 만료(TTL) 및 Active/Lazy Purge 증명
+
+수명 제한 키가 힙에 등록되고, 만료 시간이 지난 뒤 자동 소멸되는 과정을 증명합니다.
+
+### 💻 실행 명령어 순서
+
+```bash
+# 1. 키-값 먼저 저장 (인자 2개)
+SET session:temp abc
+
+# 2. 별도 명령어로 3초 만료 시간 부여 (인자 2개)
+EXPIRE session:temp 3
+
+# 3. 남은 TTL 확인 (2 또는 1초 출력 확인)
+TTL session:temp
+
+# 4. 3초 대기 후 조회 (지연 만료: Lazy Expiration 증명)
+# (3초 후 실행)
+TTL session:temp
+GET session:temp
+
+# 5. 기존 키에 EXPIRE 부여 테스트
+SET persistent:key 1234
+TTL persistent:key
+EXPIRE persistent:key 5
+TTL persistent:key
+```
+
+---
+
+## 🚪 3단계. LRU 메모리 축출 및 CONFIG SET 동적 제어 (⭐ 핵심 하이라이트)
+
+메모리 한도를 설정하고, 용량 초과 시 가장 오래 사용되지 않은 키(LRU)만 정확히 골라 제거되는지 증명합니다.
+
+### 💻 실행 명령어 순서
+
+```bash
+# 1. 3개 키 순차 등록 (사용 순서: k3(최신) -> k2 -> k1(가장 오래됨))
+SET k1 v1
+SET k2 v2
+SET k3 v3
+
+# 2. k1을 조회하여 MRU로 승격 (사용 순서 변경: k1(최신) -> k3 -> k2(가장 오래됨))
+GET k1
+
+# 3. 현재 메모리 사용량 확인 (키/값 총합 바이트 확인)
+INFO memory
+
+# 4. 메모리 한도를 현재 사용량보다 작게 강제 축출 설정 (예: 2개 분량 용량으로 축소)
+# -> 가장 오래된 k2가 즉시 축출되어야 함!
+CONFIG SET maxmemory 8
+
+# 5. 축출 결과 검증
+INFO memory
+GET k2
+GET k1
+GET k3
+```
+
+---
+
+## 🧹 4단계. 잔여 키 순차 삭제(`DEL`) 및 최종 정리 검증
+
+남아있는 키들을 `DEL <key>`로 하나씩 단건 삭제하여 캐시를 완전히 비우고 메모리가 0으로 회수되는지 확인합니다.
+
+### 💻 실행 명령어 순서
+
+```bash
+# 1. 현재 남아있는 전체 키 목록 확인
+KEYS
+
+# 2. 남아있는 키들 1개씩 순차 삭제 (단일 인자 규격)
+DEL user:1
+DEL persistent:key
+DEL k1
+DEL k3
+
+# 3. 최종 상태 검증
+DBSIZE
+KEYS
+INFO memory
 ```
