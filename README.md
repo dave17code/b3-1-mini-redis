@@ -6,7 +6,9 @@ MiniRedis의 **3대 핵심 알고리즘**인 기본 CRUD, TTL 만료 정책, LRU
 
 # 📦 PART 1. MiniRedis 내부 5대 데이터 보관 구조
 
-MiniRedis 인스턴스는 런타임 메모리에 **3개의 자료구조 저장소**와 **2개의 메모리 상태 추적 변수**를 유지합니다.
+> 🧠 **MiniRedis 런타임 인메모리 관리 체계**
+> * 📚 **3대 자료구조 저장소:** `HashMap` (검색) · `DoublyLinkedList` (LRU) · `MinHeap` (만료)
+> * 📊 **2대 메모리 관리 변수:** `used_memory` (사용량) · `maxmemory` (한도)
 
 ### 1. 🗺️ `self.hash_map` (HashMap)
 
