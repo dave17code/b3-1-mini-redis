@@ -13,7 +13,7 @@ MiniRedis의 **3대 핵심 알고리즘**인 기본 CRUD, TTL 만료 정책, LRU
 
 ### 1. 🗺️ `self.hash_map` (HashMap)
 
-- **저장 실체:** 고정 크기 1차원 리스트 `self.buckets = [None] * capacity` 📦
+- **저장 실체:** 고정 크기 1차원 리스트 `self.buckets = [None] * capacity`
 
 - **내부 데이터 규격:** `HashItem(key: str, value_node: Node_Address, next: HashItem | None)`
 
